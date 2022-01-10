@@ -31,6 +31,7 @@ struct
   | Tuple of exp list (* arbitrarily wide tuples *)
   | Select of int * exp
   | Let of var * exp * exp
+  | Lambda of var * exp
   | Func of var * var * exp (* function name, argument, function body *)
   | Num of int
   | IfZero of exp * exp * exp
@@ -71,6 +72,8 @@ struct
     | Select (n, e') => "#" ^ Int.toString n ^ " " ^ toStringP e'
     | Let (v, e1, e2) =>
         "let " ^ Id.toString v ^ " = " ^ toString e1 ^ " in " ^ toString e2
+    | Lambda (arg, body) =>
+        "fn " ^ Id.toString arg ^ " => " ^ toString body
     | Func (func, arg, body) =>
         "fun " ^ Id.toString func ^ " " ^ Id.toString arg ^ " is " ^ toString body
     | Op (name, _, e1, e2) =>
@@ -91,6 +94,7 @@ struct
         | IfZero _ => true
         | Select _ => true
         | Let _ => true
+        | Lambda _ => true
         | Func _ => true
         | Upd _ => true
         | Bang _ => true
@@ -100,7 +104,11 @@ struct
       if needsP then parens (toString e) else toString e
     end
 
+  fun isFunc e = case e of Func _ => true | _ => false
+  fun isLambda e = case e of Lambda _ => true | _ => false
+
   fun deFunc e = case e of Func x => x | _ => raise Fail "deFunc"
+  fun deLambda e = case e of Lambda x => x | _ => raise Fail "deLambda"
   fun deNum e = case e of Num x => x | _ => raise Fail "deNum"
   fun deLoc e = case e of Loc l => l | _ => raise Fail "deLoc"
   fun deTuple e = case e of Tuple x => x | _ => raise Fail "deTuple"
@@ -133,6 +141,7 @@ struct
       | Tuple es => Tuple (List.map doit es)
       | Select (n, e') => Select (n, doit e')
       | Let (v, e1, e2) => Let (v, doit e1, doit e2)
+      | Lambda (arg, body) => Lambda (arg, doit body)
       | Func (func, arg, body) => Func (func, arg, doit body)
       | Op (name, f, e1, e2) => Op (name, f, doit e1, doit e2)
       | IfZero (e1, e2, e3) => IfZero (doit e1, doit e2, doit e3)
@@ -179,6 +188,7 @@ struct
     | Num n                  => exp
     | Loc l                  => exp
     | Let (v, e1, e2)        => Let (v, letNormalize e1, letNormalize e2)
+    | Lambda (arg, body)     => Lambda (arg, letNormalize body)
     | Func (func, arg, body) => Func (func, arg, letNormalize body)
     | Par es                 => Par (List.map letNormalize es)
     | Ref e                  => normalize1 e Ref
@@ -208,6 +218,7 @@ struct
     | Loc l                  => true
     | Seq (e1, e2)           => isLetNormal e1 andalso isLetNormal e2
     | Let (v, e1, e2)        => isLetNormal e1 andalso isLetNormal e2
+    | Lambda (arg, body)     => isLetNormal body
     | Func (func, arg, body) => isLetNormal body
     | Par es                 => List.all isLetNormal es
     | Ref e                  => isVar e
@@ -248,6 +259,7 @@ struct
     | Let x    => SOME (stepLet m x)
     | Op x     => SOME (stepOp m x)
     | IfZero x => SOME (stepIfZero m x)
+    | Lambda x => SOME (stepLambda m x)
     | Func x   => SOME (stepFunc m x)
     | Ref x    => SOME (stepRef m x)
     | Bang x   => SOME (stepBang m x)
@@ -266,11 +278,13 @@ struct
         case step (m, e2) of
           SOME (m', e2') => (m', App (e1, e2'))
         | NONE =>
-            let
-              val (func, arg, body) = deFunc (getLoc (deLoc e1) m)
-            in
-              (m, subst (e1, func) (subst (e2, arg) body))
-            end
+            case getLoc (deLoc e1) m of
+              Func (func, arg, body) =>
+                (m, subst (e1, func) (subst (e2, arg) body))
+            | Lambda (arg, body) =>
+                (m, subst (e2, arg) body)
+            | _ =>
+                raise Fail "stepApp"
 
   and stepPar m es =
     case stepFirstThatCan m es of
@@ -406,6 +420,13 @@ struct
       SOME (m', e1') => (m', IfZero (e1', e2, e3))
     | NONE =>
         if deNum e1 = 0 then (m, e2) else (m, e3)
+
+  and stepLambda m (arg, body) =
+    let
+      val l = Id.loc ()
+    in
+      (IdTable.insert (l, Lambda (arg, body)) m, Loc l)
+    end
 
   and stepFunc m (func, arg, body) =
     let
@@ -610,6 +631,15 @@ struct
       Func (sumArray, a,
         App (Func (sumRange, range, body),
              Tuple [Num 0, Length (Var a)]))
+    end
+
+  (* (fn x => x+x) 42 *)
+  val applyLamExample: exp =
+    let
+      val x = Id.new "x"
+      val body = OpAdd (Var x, Var x)
+    in
+      App (Lambda (x, body), Num 42)
     end
 
 end
