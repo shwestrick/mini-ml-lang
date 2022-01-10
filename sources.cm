@@ -1,0 +1,13 @@
+Group is
+  $/basis.cm
+  lib/Util.sml
+  lib/Hash.sml
+  lib/KEY.sig
+  lib/TABLE.sig
+  lib/IntKey.sml
+  lib/TreeTable.sml
+  lib/TreeSet.sml
+  lib/AdjacencyGraph.sml
+  Identifier.sml
+  Lang.sml
+  ShapeTyping.sml
