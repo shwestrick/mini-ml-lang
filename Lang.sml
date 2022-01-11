@@ -97,6 +97,7 @@ struct
         | Lambda _ => true
         | Func _ => true
         | Upd _ => true
+        | Ref _ => true
         | Bang _ => true
         | Seq _ => true
         | _ => false
@@ -641,5 +642,13 @@ struct
     in
       App (Lambda (x, body), Num 42)
     end
+
+  val makeRef: exp =
+    let
+      val x = Id.new "x"
+    in
+      Let (x, Ref applyLamExample, Var x)
+    end
+
 
 end
