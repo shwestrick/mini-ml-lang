@@ -37,6 +37,9 @@ struct
   | IfZero of exp * exp * exp
   | Op of string * (int * int -> int) * exp * exp
 
+  | MarkPromotionReady of exp * exp * exp
+  | Wait of exp
+
   fun OpAdd (e1, e2) = Op ("+", op+, e1, e2)
   fun OpSub (e1, e2) = Op ("-", op-, e1, e2)
   fun OpMul (e1, e2) = Op ("*", op*, e1, e2)
@@ -80,6 +83,9 @@ struct
         toStringP e1 ^ " " ^ name ^ " " ^ toStringP e2
     | IfZero (e1, e2, e3) =>
         "ifz " ^ toString e1 ^ " then " ^ toString e2 ^ " else " ^ toString e3
+
+    | MarkPromotionReady _ => "(MPR)"
+    | Wait _ => "(WAIT)"
 
   and toStringP e =
     let
@@ -146,6 +152,11 @@ struct
       | Func (func, arg, body) => Func (func, arg, doit body)
       | Op (name, f, e1, e2) => Op (name, f, doit e1, doit e2)
       | IfZero (e1, e2, e3) => IfZero (doit e1, doit e2, doit e3)
+
+      | MarkPromotionReady (e1, e2, e3) =>
+          MarkPromotionReady (doit e1, doit e2, doit e3)
+
+      | Wait e => Wait (doit e)
     end
 
   (* =======================================================================
@@ -271,6 +282,9 @@ struct
     | AUpd x   => SOME (stepAUpd m x)
     | ASub x   => SOME (stepASub m x)
     | Length x => SOME (stepLength m x)
+
+    | MarkPromotionReady _ => SOME (m, Loc bogusLoc)
+    | Wait x => SOME (m, Loc bogusLoc)
 
   and stepApp m (e1, e2) =
     case step (m, e1) of
@@ -466,12 +480,13 @@ struct
       SOME (m', e1') => (m', Seq (e1', e2))
     | NONE => (m, e2)
 
-  fun exec e =
+  fun exec' doPrint e =
     let
+      fun p s = if doPrint then print s else ()
       fun loop (m, e) =
         let
-          val _ = print (IdTable.toString (fn e => " " ^ toString e ^ "\n") m ^ "\n")
-          val _ = print (toString e ^ "\n\n")
+          val _ = p (IdTable.toString (fn e => " " ^ toString e ^ "\n") m ^ "\n")
+          val _ = p (toString e ^ "\n\n")
         in
           case step (m, e) of
             NONE => (m, e)
@@ -488,6 +503,8 @@ struct
       (* (m, e) *)
       ()
     end
+
+  fun exec e = exec' true e
 
   (* ======================================================================= *)
 

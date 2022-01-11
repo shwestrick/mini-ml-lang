@@ -150,6 +150,40 @@ struct
     | Array es =>
         patchN Array (List.map convert' es)
 
+    | Par [e1, e2] =>
+        let
+          val k = Id.new "K"
+          val left = Id.new "left"
+          val right1 = Id.new "right"
+          val right2 = Id.new "right"
+          val syncvar1 = Id.new "syncvar"
+          val syncvar2 = Id.new "syncvar"
+          val pp = Id.new "P"
+
+          val e1' = convert' e1
+          val e2' = convert' e2
+
+          val return = App (Var k, Tuple [Var left, Var right1])
+
+          val normalCont =
+            Lambda (left, App (e2', Lambda (right1, return)))
+
+          val leftParCont =
+            Lambda (left, Lambda (syncvar1,
+            App (continueWith (Wait (Var syncvar1)), Lambda (right1,
+            return))))
+
+          val rightParCont =
+            Lambda (syncvar2,
+            App (e2', Lambda (right2,
+            Upd (Var syncvar2, Var right2))))
+        in
+          Lambda (k,
+            Let (pp, Ref normalCont,
+            Seq (MarkPromotionReady (leftParCont, rightParCont, Var pp),
+            App (e1', Bang (Var pp)))))
+        end
+
     | _ => raise Fail "convert case not yet implemented"
 
     (*
