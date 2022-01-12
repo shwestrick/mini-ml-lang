@@ -364,7 +364,9 @@ struct
 
   fun doPromotions mem activeThreads =
     let
+      val _ = print ("heartbeat\n")
       fun doPromotion mem hbstack =
+        ( (*print ("trying to promote, hbstack size = " ^ Int.toString (List.length hbstack) ^ "\n");*)
         case Util.splitLast hbstack of
           NONE => NONE
         | SOME (hbstack', topmost as (e1, e2, e3)) =>
@@ -395,7 +397,7 @@ struct
               val _ = print "finished promotion\n"
             in
               SOME (mem, hbstack', rightSideThread)
-            end
+            end)
 
       fun loop mem done newThreads todo =
         case todo of
@@ -445,16 +447,16 @@ struct
         else
         let
           val (mem, active, blocked) = filterTrySteps mem threads
-          val numSteps = numSteps+1
+          val numSteps' = numSteps+1
           val maxActive = Int.max (List.length active, maxActive)
 
           val (mem, active) =
-            if numSteps mod heartbeat = 0 then
+            if numSteps' mod heartbeat = 0 then
               doPromotions mem active
             else
               (mem, active)
         in
-          loop (numSteps+1) maxActive mem (active @ blocked)
+          loop numSteps' maxActive mem (active @ blocked)
         end
 
       (** Write the final result into the memory at a predetermined location.
