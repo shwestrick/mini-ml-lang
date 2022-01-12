@@ -11,4 +11,16 @@ struct
 
   fun allTrue xs = List.all (fn b => b) xs
 
+  fun splitLast xs =
+    let
+      fun loop acc (head, tail) =
+        case tail of
+          [] => SOME (List.rev acc, head)
+        | head' :: tail' => loop (head :: acc) (head', tail')
+    in
+      case xs of
+        [] => NONE
+      | head :: tail => loop [] (head, tail)
+    end
+
 end

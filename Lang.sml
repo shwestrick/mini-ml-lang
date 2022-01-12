@@ -37,7 +37,8 @@ struct
   | IfZero of exp * exp * exp
   | Op of string * (int * int -> int) * exp * exp
 
-  | MarkPromotionReady of exp * exp * exp
+  | PushPromotionReady of exp * exp * exp
+  | PopPromotionReady
   | Wait of exp
 
   fun OpAdd (e1, e2) = Op ("+", op+, e1, e2)
@@ -84,7 +85,8 @@ struct
     | IfZero (e1, e2, e3) =>
         "ifz " ^ toString e1 ^ " then " ^ toString e2 ^ " else " ^ toString e3
 
-    | MarkPromotionReady _ => "(MPR)"
+    | PushPromotionReady _ => "(PushPR)"
+    | PopPromotionReady => "(PopPR)"
     | Wait _ => "(WAIT)"
 
   and toStringP e =
@@ -153,8 +155,9 @@ struct
       | Op (name, f, e1, e2) => Op (name, f, doit e1, doit e2)
       | IfZero (e1, e2, e3) => IfZero (doit e1, doit e2, doit e3)
 
-      | MarkPromotionReady (e1, e2, e3) =>
-          MarkPromotionReady (doit e1, doit e2, doit e3)
+      | PushPromotionReady (e1, e2, e3) =>
+          PushPromotionReady (doit e1, doit e2, doit e3)
+      | PopPromotionReady => PopPromotionReady
 
       | Wait e => Wait (doit e)
     end
@@ -259,34 +262,7 @@ struct
       NONE => raise Fail ("getLoc " ^ Id.toString loc)
     | SOME x => x
 
-  fun step (m, e) =
-    case e of
-      Var x    => NONE
-    | Num x    => NONE
-    | Loc x    => NONE
-    | App x    => SOME (stepApp m x)
-    | Par x    => SOME (stepPar m x)
-    | Tuple x  => SOME (stepTuple m x)
-    | Select x => SOME (stepSelect m x)
-    | Let x    => SOME (stepLet m x)
-    | Op x     => SOME (stepOp m x)
-    | IfZero x => SOME (stepIfZero m x)
-    | Lambda x => SOME (stepLambda m x)
-    | Func x   => SOME (stepFunc m x)
-    | Ref x    => SOME (stepRef m x)
-    | Bang x   => SOME (stepBang m x)
-    | Upd x    => SOME (stepUpd m x)
-    | Seq x    => SOME (stepSeq m x)
-    | Array x  => SOME (stepArray m x)
-    | Alloc x  => SOME (stepAlloc m x)
-    | AUpd x   => SOME (stepAUpd m x)
-    | ASub x   => SOME (stepASub m x)
-    | Length x => SOME (stepLength m x)
-
-    | MarkPromotionReady _ => SOME (m, Loc bogusLoc)
-    | Wait x => SOME (m, Loc bogusLoc)
-
-  and stepApp m (e1, e2) =
+  fun stepApp step m (e1, e2) =
     case step (m, e1) of
       SOME (m', e1') => (m', App (e1', e2))
     | NONE =>
@@ -301,13 +277,36 @@ struct
             | _ =>
                 raise Fail "stepApp"
 
-  and stepPar m es =
-    case stepFirstThatCan m es of
+  (* Walk through es, trying to step each expression, from left to right.
+   * as soon as we find an e -> e', we replace e with e' and back out,
+   * returning the updated memory. If no expression can step, then we
+   * are done stepping this group of expressions. This is used to implement
+   * both Tuple stepping, and Par stepping. Really, Par stepping should be
+   * parallel or interleaved, but whatever.
+   *)
+  fun stepFirstThatCan
+        (step: memory * exp -> (memory * exp) option)
+        (m: memory)
+        (es: exp list)
+        : (memory * (exp list)) option
+    =
+    case es of
+      [] => NONE
+    | e :: rest =>
+        case step (m, e) of
+          SOME (m', e') => SOME (m', e' :: rest)
+        | NONE =>
+            case stepFirstThatCan step m rest of
+              SOME (m', rest') => SOME (m', e :: rest')
+            | NONE => NONE
+
+  fun stepPar step m es =
+    case stepFirstThatCan step m es of
       SOME (m', es') => (m', Par es')
     | NONE => (m, Tuple es)
 
-  and stepTuple m es =
-    case stepFirstThatCan m es of
+  fun stepTuple step m es =
+    case stepFirstThatCan step m es of
       SOME (m', es') => (m', Tuple es')
     | NONE =>
         let
@@ -316,8 +315,8 @@ struct
           (IdTable.insert (l, Tuple es) m, Loc l)
         end
 
-  and stepArray m es =
-    case stepFirstThatCan m es of
+  fun stepArray step m es =
+    case stepFirstThatCan step m es of
       SOME (m', es') => (m', Array es')
     | NONE =>
         let
@@ -326,7 +325,7 @@ struct
           (IdTable.insert (l, Array es) m, Loc l)
         end
 
-  and stepAlloc m e =
+  fun stepAlloc step m e =
     case step (m, e) of
       SOME (m', e') => (m', Alloc e')
     | NONE =>
@@ -340,7 +339,7 @@ struct
           (IdTable.insert (l, Array es) m, Loc l)
         end
 
-  and stepAUpd m (e1, e2, e3) =
+  fun stepAUpd step m (e1, e2, e3) =
     case step (m, e1) of
       SOME (m', e1') => (m', AUpd (e1', e2, e3))
     | NONE =>
@@ -355,14 +354,14 @@ struct
                     val es = deArray (getLoc l m)
                     val idx = deNum e2
 
-                    (* jump to idx and replace with e3 *)
+                    (* jump to idx fun replace step with e3 *)
                     val es' =
                       List.take (es, idx) @ (e3 :: List.drop (es, idx+1))
                   in
                     (IdTable.insert (l, Array es') m, e3)
                   end
 
-  and stepASub m (e1, e2) =
+  fun stepASub step m (e1, e2) =
     case step (m, e1) of
       SOME (m', e1') => (m', ASub (e1', e2))
     | NONE =>
@@ -377,7 +376,7 @@ struct
               (m, List.nth (es, idx))
             end
 
-  and stepLength m e =
+  fun stepLength step m e =
     case step (m, e) of
       SOME (m', e') => (m', Length e')
     | NONE =>
@@ -387,36 +386,18 @@ struct
           (m, Num (List.length es))
         end
 
-  (* Walk through es, trying to step each expression, from left to right.
-   * as soon as we find an e -> e', we replace e with e' and back out,
-   * returning the updated memory. If no expression can step, then we
-   * are done stepping this group of expressions. This is used to implement
-   * both Tuple stepping, and Par stepping. Really, Par stepping should be
-   * parallel or interleaved, but whatever.
-   *)
-  and stepFirstThatCan m es =
-    case es of
-      [] => NONE
-    | e :: rest =>
-        case step (m, e) of
-          SOME (m', e') => SOME (m', e' :: rest)
-        | NONE =>
-            case stepFirstThatCan m rest of
-              SOME (m', rest') => SOME (m', e :: rest')
-            | NONE => NONE
-
-  and stepSelect m (n, e) =
+  fun stepSelect step m (n, e) =
     case step (m, e) of
       SOME (m', e') => (m', Select (n, e'))
     | NONE =>
         (m, List.nth (deTuple (getLoc (deLoc e) m), n-1))
 
-  and stepLet m (v, e1, e2) =
+  fun stepLet step m (v, e1, e2) =
     case step (m, e1) of
       SOME (m', e1') => (m', Let (v, e1', e2))
     | NONE => (m, subst (e1, v) e2)
 
-  and stepOp m (name, oper, e1, e2) =
+  fun stepOp step m (name, oper, e1, e2) =
     case step (m, e1) of
       SOME (m', e1') => (m', Op (name, oper, e1', e2))
     | NONE =>
@@ -430,27 +411,27 @@ struct
               (m, Num (oper (n1, n2)))
             end
 
-  and stepIfZero m (e1, e2, e3) =
+  fun stepIfZero step m (e1, e2, e3) =
     case step (m, e1) of
       SOME (m', e1') => (m', IfZero (e1', e2, e3))
     | NONE =>
         if deNum e1 = 0 then (m, e2) else (m, e3)
 
-  and stepLambda m (arg, body) =
+  fun stepLambda step m (arg, body) =
     let
       val l = Id.loc ()
     in
       (IdTable.insert (l, Lambda (arg, body)) m, Loc l)
     end
 
-  and stepFunc m (func, arg, body) =
+  fun stepFunc step m (func, arg, body) =
     let
       val l = Id.loc ()
     in
       (IdTable.insert (l, Func (func, arg, body)) m, Loc l)
     end
 
-  and stepRef m e =
+  fun stepRef step m e =
     case step (m, e) of
       SOME (m', e') => (m', Ref e')
     | NONE =>
@@ -460,13 +441,13 @@ struct
           (IdTable.insert (l, Ref e) m, Loc l)
         end
 
-  and stepBang m e =
+  fun stepBang step m e =
     case step (m, e) of
       SOME (m', e') => (m', Bang e')
     | NONE =>
         (m, deRef (getLoc (deLoc e) m))
 
-  and stepUpd m (e1, e2) =
+  fun stepUpd step m (e1, e2) =
     case step (m, e1) of
       SOME (m', e1') => (m', Upd (e1', e2))
     | NONE =>
@@ -475,10 +456,42 @@ struct
         | NONE =>
             (IdTable.insert (deLoc e1, Ref e2) m, e2)
 
-  and stepSeq m (e1, e2) =
+  fun stepSeq step m (e1, e2) =
     case step (m, e1) of
       SOME (m', e1') => (m', Seq (e1', e2))
     | NONE => (m, e2)
+
+
+  fun dispatchStep stepper (m, e) =
+    case e of
+      Var x    => NONE
+    | Num x    => NONE
+    | Loc x    => NONE
+    | App x    => SOME (stepApp stepper m x)
+    | Par x    => SOME (stepPar stepper m x)
+    | Tuple x  => SOME (stepTuple stepper m x)
+    | Select x => SOME (stepSelect stepper m x)
+    | Let x    => SOME (stepLet stepper m x)
+    | Op x     => SOME (stepOp stepper m x)
+    | IfZero x => SOME (stepIfZero stepper m x)
+    | Lambda x => SOME (stepLambda stepper m x)
+    | Func x   => SOME (stepFunc stepper m x)
+    | Ref x    => SOME (stepRef stepper m x)
+    | Bang x   => SOME (stepBang stepper m x)
+    | Upd x    => SOME (stepUpd stepper m x)
+    | Seq x    => SOME (stepSeq stepper m x)
+    | Array x  => SOME (stepArray stepper m x)
+    | Alloc x  => SOME (stepAlloc stepper m x)
+    | AUpd x   => SOME (stepAUpd stepper m x)
+    | ASub x   => SOME (stepASub stepper m x)
+    | Length x => SOME (stepLength stepper m x)
+
+    | PushPromotionReady _ => SOME (m, Loc bogusLoc)
+    | PopPromotionReady => SOME (m, Loc bogusLoc)
+    | Wait x => SOME (m, Loc bogusLoc)
+
+
+  fun step (m, e) = dispatchStep step (m, e)
 
   fun exec' doPrint e =
     let

@@ -153,9 +153,11 @@ struct
     | Par [e1, e2] =>
         let
           val k = Id.new "K"
-          val left = Id.new "left"
+          val left1 = Id.new "left"
+          val left2 = Id.new "left"
           val right1 = Id.new "right"
           val right2 = Id.new "right"
+          val right3 = Id.new "right"
           val syncvar1 = Id.new "syncvar"
           val syncvar2 = Id.new "syncvar"
           val pp = Id.new "P"
@@ -163,24 +165,25 @@ struct
           val e1' = convert' e1
           val e2' = convert' e2
 
-          val return = App (Var k, Tuple [Var left, Var right1])
-
           val normalCont =
-            Lambda (left, App (e2', Lambda (right1, return)))
+            Lambda (left1,
+            Seq (PopPromotionReady,
+            App (e2', Lambda (right1,
+            App (Var k, Tuple [Var left1, Var right1])))))
 
           val leftParCont =
-            Lambda (left, Lambda (syncvar1,
-            App (continueWith (Wait (Var syncvar1)), Lambda (right1,
-            return))))
+            Lambda (syncvar1, Lambda (left2,
+            App (continueWith (Wait (Var syncvar1)), Lambda (right2,
+            App (Var k, Tuple [Var left2, Var right2])))))
 
           val rightParCont =
             Lambda (syncvar2,
-            App (e2', Lambda (right2,
-            Upd (Var syncvar2, Var right2))))
+            App (e2', Lambda (right3,
+            Upd (Var syncvar2, Var right3))))
         in
           Lambda (k,
             Let (pp, Ref normalCont,
-            Seq (MarkPromotionReady (leftParCont, rightParCont, Var pp),
+            Seq (PushPromotionReady (leftParCont, rightParCont, Var pp),
             App (e1', Bang (Var pp)))))
         end
 
