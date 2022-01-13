@@ -8,7 +8,42 @@ struct
   open Lang
 
   type mem = exp Lang.IdTable.t
-  type hbstack = (exp * exp * exp) list
+
+  structure HBStack:
+  sig
+    type elem = exp * exp * exp
+    type t
+    val empty: t
+    val push: elem -> t -> t
+    val pop: t -> t
+    val promoteOldest: t -> (t * elem) option
+  end =
+  struct
+    type elem = (exp * exp * exp)
+    datatype t = HBS of {ready: elem list, alreadyPromoted: elem list}
+
+    val empty = HBS {ready = [], alreadyPromoted = []}
+
+    fun push x (HBS {ready, alreadyPromoted}) =
+      HBS {ready = x :: ready, alreadyPromoted = alreadyPromoted}
+
+    fun pop (HBS {ready, alreadyPromoted=ap}) =
+      case ready of
+        x :: rest => HBS {ready = rest, alreadyPromoted = ap}
+      | [] =>
+      case ap of
+        x :: rest => HBS {ready = [], alreadyPromoted = rest}
+      | [] => raise Fail "HBStack.pop: empty"
+
+    fun promoteOldest (HBS {ready=r, alreadyPromoted=ap}) =
+      case Util.splitLast r of
+        SOME (r', x) =>
+          SOME (HBS {ready = r', alreadyPromoted = x :: ap}, x)
+      | NONE =>
+          NONE
+  end
+
+  type hbstack = HBStack.t
 
   type m =
     { memory: mem
@@ -300,17 +335,19 @@ struct
       Next (m', e3') => Next (m', PushPromotionReady (e1, e2, e3'))
     | Blocked => Blocked
     | Done =>
-        ( print ("pushPR\n");
+        ( (*print ("pushPR\n");*)
         Next
-          ( {memory = #memory m, hbstack = (e1, e2, e3) :: #hbstack m}
+          ( { memory = #memory m
+            , hbstack = HBStack.push (e1, e2, e3) (#hbstack m)
+            }
           , Tuple []
           )
         )
 
   and stepPopPR m =
-    ( print ("popPR\n");
+    ( (*print ("popPR\n");*)
     Next
-      ( {memory = #memory m, hbstack = List.tl (#hbstack m)}
+      ( {memory = #memory m, hbstack = HBStack.pop (#hbstack m)}
       , Tuple []
       )
     )
@@ -364,17 +401,17 @@ struct
 
   fun doPromotions mem activeThreads =
     let
-      val _ = print ("heartbeat\n")
+      (* val _ = print ("heartbeat\n") *)
       fun doPromotion mem hbstack =
         ( (*print ("trying to promote, hbstack size = " ^ Int.toString (List.length hbstack) ^ "\n");*)
-        case Util.splitLast hbstack of
+        case HBStack.promoteOldest hbstack of
           NONE => NONE
-        | SOME (hbstack', topmost as (e1, e2, e3)) =>
+        | SOME (hbstack', oldest as (e1, e2, e3)) =>
             let
-              val _ = print "promoting...\n"
+              (* val _ = print "promoting...\n"
               val _ = print ("  e1 = " ^ Lang.toString e1 ^ "\n")
               val _ = print ("  e2 = " ^ Lang.toString e2 ^ "\n")
-              val _ = print ("  e3 = " ^ Lang.toString e3 ^ "\n")
+              val _ = print ("  e3 = " ^ Lang.toString e3 ^ "\n") *)
               val leftParCont = getLoc (deLoc e1) mem
               val rightParCont = getLoc (deLoc e2) mem
               val leftContRefLoc = deLoc e3
@@ -387,14 +424,13 @@ struct
               val newLeftCont =
                 Lambda (tmp, App (App (leftParCont, syncvar), Var tmp))
 
-              val freshHbstack = []
               val rightSideThread =
-                (freshHbstack, App (rightParCont, syncvar))
+                (HBStack.empty, App (rightParCont, syncvar))
 
               val mem = IdTable.insert (syncvarLoc, Ref (Loc bogusLoc)) mem
               val mem = IdTable.insert (newLeftContLoc, newLeftCont) mem
               val mem = IdTable.insert (leftContRefLoc, Ref (Loc newLeftContLoc)) mem
-              val _ = print "finished promotion\n"
+              (* val _ = print "finished promotion\n" *)
             in
               SOME (mem, hbstack', rightSideThread)
             end)
@@ -466,7 +502,7 @@ struct
       val resultLoc = Id.loc ()
       val initMem = IdTable.insert (resultLoc, Ref (Loc bogusLoc)) IdTable.empty
       val mainThread =
-        ( [] (* fresh hbstack *)
+        ( HBStack.empty
         , Upd (Loc resultLoc, exp)
         )
 
