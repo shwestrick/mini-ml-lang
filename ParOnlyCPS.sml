@@ -11,6 +11,9 @@ struct
 
       Par [e1, e2] =>
         let
+          val e1' = convert e1
+          val e2' = convert e2
+
           val left1 = Id.new "left"
           val left2 = Id.new "left"
           val left3 = Id.new "left"
@@ -21,7 +24,7 @@ struct
           val normalCont =
             Lambda (left1,
             Seq (PopPromotionReady,
-            Tuple [Var left1, e2]))
+            Tuple [Var left1, e2']))
 
           val leftParCont =
             Lambda (syncvar1, Lambda (left2,
@@ -30,11 +33,11 @@ struct
 
           val rightParCont =
             Lambda (syncvar2,
-            Upd (Var syncvar2, e2))
+            Upd (Var syncvar2, e2'))
         in
           Let (pp, Ref normalCont,
           Seq (PushPromotionReady (leftParCont, rightParCont, Var pp),
-          Let (left3, e1,
+          Let (left3, e1',
           App (Bang (Var pp), Var left3))))
         end
 
