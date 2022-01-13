@@ -1,7 +1,7 @@
 structure Heartbeat:
 sig
   (** requires exp is already CPS.convert'ed *)
-  val exec: {heartbeat: int, doPrint: bool} -> Lang.exp -> unit
+  val exec: {heartbeat: int} -> Lang.exp -> unit
 end =
 struct
 
@@ -475,7 +475,7 @@ struct
     end
 
 
-  fun exec {heartbeat, doPrint} exp =
+  fun exec {heartbeat} exp =
     let
       fun loop numSteps maxActive mem threads =
         if List.null threads then

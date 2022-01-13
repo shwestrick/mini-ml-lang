@@ -12,4 +12,5 @@ Group is
   Lang.sml
   ShapeTyping.sml
   CPS.sml
+  ParOnlyCPS.sml
   Heartbeat.sml

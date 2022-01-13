@@ -173,8 +173,9 @@ struct
 
           val leftParCont =
             Lambda (syncvar1, Lambda (left2,
+            Seq (PopPromotionReady,
             App (continueWith (Wait (Var syncvar1)), Lambda (right2,
-            App (Var k, Tuple [Var left2, Var right2])))))
+            App (Var k, Tuple [Var left2, Var right2]))))))
 
           val rightParCont =
             Lambda (syncvar2,
