@@ -187,14 +187,6 @@ struct
             App (e1', Bang (Var pp)))))
         end
 
-    | _ => raise Fail "convert case not yet implemented"
-
-    (*
-    | Par es =>
-    | Array es =>
-    | Tuple es =>
-    *)
-
 
   fun convert e =
     App (convert' e, idFunc ())
