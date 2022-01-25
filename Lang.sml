@@ -25,6 +25,12 @@ struct
   | ASub of exp * exp
   | Length of exp
 
+  | Nil
+  | IsNil of exp  (* returns 0 or 1 as a hack. sorry. *)
+  | Tail of exp
+  | Head of exp
+  | Cons of exp * exp
+
   | Seq of exp * exp
   | App of exp * exp
   | Par of exp list   (* arbitrarily wide tuples *)
@@ -85,6 +91,12 @@ struct
     | IfZero (e1, e2, e3) =>
         "ifz " ^ toString e1 ^ " then " ^ toString e2 ^ " else " ^ toString e3
 
+    | Nil => "nil"
+    | IsNil e => "isNil " ^ toStringP e
+    | Head e => "hd " ^ toStringP e
+    | Tail e => "tl " ^ toStringP e
+    | Cons (e1, e2) => toStringP e1 ^ " :: " ^ toStringP e2
+
     | PushPromotionReady _ => "(PushPR)"
     | PopPromotionReady => "(PopPR)"
     | Wait _ => "(WAIT)"
@@ -108,6 +120,10 @@ struct
         | Ref _ => true
         | Bang _ => true
         | Seq _ => true
+        | Head _ => true
+        | Tail _ => true
+        | Cons _ => true
+        | IsNil _ => true
         | _ => false
     in
       if needsP then parens (toString e) else toString e
@@ -154,6 +170,12 @@ struct
       | Func (func, arg, body) => Func (func, arg, doit body)
       | Op (name, f, e1, e2) => Op (name, f, doit e1, doit e2)
       | IfZero (e1, e2, e3) => IfZero (doit e1, doit e2, doit e3)
+
+      | Nil => Nil
+      | IsNil e => IsNil (doit e)
+      | Head e => Head (doit e)
+      | Tail e => Tail (doit e)
+      | Cons (e1, e2) => Cons (doit e1, doit e2)
 
       | PushPromotionReady (e1, e2, e3) =>
           PushPromotionReady (doit e1, doit e2, doit e3)
@@ -461,6 +483,52 @@ struct
       SOME (m', e1') => (m', Seq (e1', e2))
     | NONE => (m, e2)
 
+  fun stepNil step m =
+    let
+      val l = Id.loc ()
+    in
+      (IdTable.insert (l, Nil) m, Loc l)
+    end
+
+  fun stepIsNil step m e =
+    case step (m, e) of
+      SOME (m', e') => (m', IsNil e')
+    | NONE =>
+        case getLoc (deLoc e) m of
+          Nil => (m, Num 1)
+        | Cons _ => (m, Num 0)
+        | _ => raise Fail "IsNil (???)"
+
+  fun stepHead step m e =
+    case step (m, e) of
+      SOME (m', e') => (m', Head e')
+    | NONE =>
+        case getLoc (deLoc e) m of
+          Nil => raise Fail "Head Nil"
+        | Cons (first, _) => (m, first)
+        | _ => raise Fail "Head (???)"
+
+  fun stepTail step m e =
+    case step (m, e) of
+      SOME (m', e') => (m', Head e')
+    | NONE =>
+        case getLoc (deLoc e) m of
+          Nil => (m, e)
+        | Cons (_, rest) => (m, rest)
+        | _ => raise Fail "Tail (???)"
+
+  fun stepCons step m (e1, e2) =
+    case step (m, e1) of
+      SOME (m', e1') => (m', Cons (e1', e2))
+    | NONE =>
+        case step (m, e2) of
+          SOME (m', e2') => (m', Cons (e1, e2'))
+        | NONE =>
+            let
+              val l = Id.loc ()
+            in
+              (IdTable.insert (l, Cons (e1, e2)) m, Loc l)
+            end
 
   fun dispatchStep stepper (m, e) =
     case e of
@@ -485,6 +553,11 @@ struct
     | AUpd x   => SOME (stepAUpd stepper m x)
     | ASub x   => SOME (stepASub stepper m x)
     | Length x => SOME (stepLength stepper m x)
+    | Nil      => SOME (stepNil stepper m)
+    | IsNil x  => SOME (stepIsNil stepper m x)
+    | Tail x   => SOME (stepTail stepper m x)
+    | Head x   => SOME (stepHead stepper m x)
+    | Cons x   => SOME (stepCons stepper m x)
 
     | PushPromotionReady _ => SOME (m, Loc bogusLoc)
     | PopPromotionReady => SOME (m, Loc bogusLoc)
@@ -523,6 +596,7 @@ struct
 
   fun Fst e = Select (1, e)
   fun Snd e = Select (2, e)
+  fun IfNil (e1, e2, e3) = IfZero (IsNil e1, e3, e2)
 
   val fact: exp =
     let
@@ -681,5 +755,40 @@ struct
       Let (x, Ref applyLamExample, Var x)
     end
 
+  val idFunc: exp =
+    let
+      val x = Id.new "x"
+    in
+      Lambda (x, Var x)
+    end
+
+  val listTabulate: exp =
+    let
+      val n = Id.new "n"
+      val f = Id.new "f"
+      val loop1 = Id.new "loop"
+      val loop2 = Id.new "loop"
+      val i = Id.new "i"
+    in
+      Lambda (f,
+      Lambda (n,
+      Let (loop1,
+        Func (loop2, i,
+          IfZero (OpSub (Var n, Var i),
+            Nil,
+            Cons (App (Var f, Var i), App (Var loop2, OpAdd (Var i, Num 1))))),
+      App (Var loop1, Num 0))))
+    end
+
+  val listSum: exp =
+    let
+      val listSum = Id.new "listSum"
+      val xs = Id.new "xs"
+    in
+      Func (listSum, xs,
+        IfNil (Var xs,
+          Num 0,
+          OpAdd (Head (Var xs), App (Var listSum, Tail (Var xs)))))
+    end
 
 end
