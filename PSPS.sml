@@ -225,8 +225,50 @@ struct
     | Array es =>
         patchN Array (List.map convert es)
 
-    | Par es =>
-        patchN Par (List.map convert es)
+    | Par [e1, e2] =>
+        let
+          val e1' = convert e1
+          val e2' = convert e2
+
+          val p0 = Id.new "p"
+          val p1 = Id.new "p"
+          val p2 = Id.new "p"
+          val k = Id.new "k"
+          val left1 = Id.new "left"
+          val left2 = Id.new "left"
+          val vp1 = Id.new "vp"
+          val vp2 = Id.new "vp"
+          val vp3 = Id.new "vp"
+          val ignore = Id.new "ignore"
+          val t = Id.new "t"
+
+          val seqCont =
+            Lambda (left1,
+            Lambda (p1,
+            Let (vp1, App (e2', Var p1),
+            Tuple [Tuple [Var left1, Fst (Var vp1)], Snd (Var vp1)])))
+
+          val parCont =
+            Lambda (left2,
+            Lambda (p2,
+            Tuple [Tuple [Var left2, Sync (Var t)], Var p2]))
+
+          val rightSide =
+            Let (vp2, App (e2', Nil), Fst (Var vp2))
+
+          val activate =
+            Lambda (ignore,
+            Let (t, Spawn rightSide,
+            Upd (Var k, parCont)))
+        in
+          Lambda (p0,
+          Let (k, Ref seqCont,
+          Let (vp3, App (e1', Cons (activate, Var p0)),
+          App (App (Bang (Var k), Fst (Var vp3)), Tail (Snd (Var vp3))))))
+        end
+
+    (* | Par es =>
+        patchN Par (List.map convert es) *)
 
     | _ => raise Fail ("PSPS.convert not yet implemented for: " ^ toString e)
 

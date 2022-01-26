@@ -47,6 +47,10 @@ struct
   | PopPromotionReady
   | Wait of exp
 
+  | Spawn of exp
+  | Sync of exp
+
+
   fun OpAdd (e1, e2) = Op ("+", op+, e1, e2)
   fun OpSub (e1, e2) = Op ("-", op-, e1, e2)
   fun OpMul (e1, e2) = Op ("*", op*, e1, e2)
@@ -97,6 +101,9 @@ struct
     | Tail e => "tl " ^ toStringP e
     | Cons (e1, e2) => toStringP e1 ^ " :: " ^ toStringP e2
 
+    | Spawn e => "spawn " ^ toStringP e
+    | Sync e => "sync " ^ toStringP e
+
     | PushPromotionReady _ => "(PushPR)"
     | PopPromotionReady => "(PopPR)"
     | Wait _ => "(WAIT)"
@@ -124,6 +131,8 @@ struct
         | Tail _ => true
         | Cons _ => true
         | IsNil _ => true
+        | Spawn _ => true
+        | Sync _ => true
         | _ => false
     in
       if needsP then parens (toString e) else toString e
@@ -176,6 +185,9 @@ struct
       | Head e => Head (doit e)
       | Tail e => Tail (doit e)
       | Cons (e1, e2) => Cons (doit e1, doit e2)
+
+      | Spawn e => Spawn (doit e)
+      | Sync e => Sync (doit e)
 
       | PushPromotionReady (e1, e2, e3) =>
           PushPromotionReady (doit e1, doit e2, doit e3)
@@ -510,7 +522,7 @@ struct
 
   fun stepTail step m e =
     case step (m, e) of
-      SOME (m', e') => (m', Head e')
+      SOME (m', e') => (m', Tail e')
     | NONE =>
         case getLoc (deLoc e) m of
           Nil => (m, e)
@@ -529,6 +541,12 @@ struct
             in
               (IdTable.insert (l, Cons (e1, e2)) m, Loc l)
             end
+
+  fun stepSpawn step m e =
+    (m, e)
+
+  fun stepSync step m e =
+    (m, e)
 
   fun dispatchStep stepper (m, e) =
     case e of
@@ -558,6 +576,8 @@ struct
     | Tail x   => SOME (stepTail stepper m x)
     | Head x   => SOME (stepHead stepper m x)
     | Cons x   => SOME (stepCons stepper m x)
+    | Spawn x  => SOME (stepSpawn stepper m x)
+    | Sync x   => SOME (stepSync stepper m x)
 
     | PushPromotionReady _ => SOME (m, Loc bogusLoc)
     | PopPromotionReady => SOME (m, Loc bogusLoc)
